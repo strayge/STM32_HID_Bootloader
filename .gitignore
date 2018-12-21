@@ -45,3 +45,15 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# C/C++ binaries
+*.o
+*.dis
+*.elf
+*.lst
+*.map
+*.size
+*.bin
+
+# vs code
+.vscode

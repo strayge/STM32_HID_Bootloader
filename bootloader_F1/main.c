@@ -16,8 +16,8 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *
 * Modified 20 April 2018
-*	by Vassilis Serasidis <info@serasidis.gr>
-*	This HID bootloader works with STM32F103 + STM32duino + Arduino IDE <http://www.stm32duino.com/>
+*    by Vassilis Serasidis <info@serasidis.gr>
+*    This HID bootloader works with STM32F103 + STM32duino + Arduino IDE <http://www.stm32duino.com/>
 *
 */
 
@@ -43,11 +43,6 @@ void led_on();
 void led_off();
 #endif
 
-#if defined HAS_LED2_PIN
-void led2_on();
-void led2_off();
-#endif
-
 void pins_init();
 void USB_Shutdown();
 void blink_led(uint16_t times);
@@ -58,134 +53,120 @@ bool uploadStarted;
 bool uploadFinished;
 bool send_next_data = false;  
 
-static uint8_t CMD_SEND_NEXT_DATA[] = {'B','T','L','D','C','M','D',2}; 
-
 uint16_t get_and_clear_magic_word() {
-	bit_set(RCC->APB1ENR, RCC_APB1ENR_BKPEN | RCC_APB1ENR_PWREN); //Enable the power and backup interface clocks by setting the PWREN and BKPEN bitsin the RCC_APB1ENR register
+    bit_set(RCC->APB1ENR, RCC_APB1ENR_BKPEN | RCC_APB1ENR_PWREN); //Enable the power and backup interface clocks by setting the PWREN and BKPEN bitsin the RCC_APB1ENR register
 
-	uint16_t value = BKP->DR10;
-	if(value) {
-		bit_set(PWR->CR, PWR_CR_DBP); //Enable access to the backup registers and the RTC.
-		BKP->DR10 = 0x0000;
-		bit_clear(PWR->CR, PWR_CR_DBP);
-	}
-	
-	bit_clear(RCC->APB1ENR, RCC_APB1ENR_BKPEN | RCC_APB1ENR_PWREN);
+    uint16_t value = BKP->DR10;
+    if(value) {
+        bit_set(PWR->CR, PWR_CR_DBP); //Enable access to the backup registers and the RTC.
+        BKP->DR10 = 0x0000;
+        bit_clear(PWR->CR, PWR_CR_DBP);
+    }
+    
+    bit_clear(RCC->APB1ENR, RCC_APB1ENR_BKPEN | RCC_APB1ENR_PWREN);
 
-	return value;
+    return value;
 }
 
 int main() {
-	pins_init();
+    pins_init();
   
-  // Wait 1uS so the pull-up settles...
-	delay(72);
+    // Wait 1uS so the pull-up settles...
+    delay(72);
   
-#if defined HAS_LED2_PIN
-	led2_off();
-#endif
-		
-	uploadStarted = false;
-	uploadFinished = false;
-	uint32_t userProgramAddress = *(volatile uint32_t *)(USER_PROGRAM + 0x04);
-	funct_ptr userProgram = (funct_ptr) userProgramAddress;
+    uploadStarted = false;
+    uploadFinished = false;
+    uint32_t userProgramAddress = *(volatile uint32_t *)(USER_PROGRAM + 0x04);
+    funct_ptr userProgram = (funct_ptr) userProgramAddress;
 
-	// If PB2 (BOOT 1 pin) is HIGH enter HID bootloader or no User Code is uploaded to the MCU ...
-	if((GPIOB->IDR & GPIO_IDR_IDR2)||(checkUserCode(USER_CODE_FLASH0X8001000) == false)) {
+    // If PB2 (BOOT 1 pin) is HIGH enter HID bootloader or no User Code is uploaded to the MCU ...
+    if((GPIOB->IDR & GPIO_IDR_IDR2)||(checkUserCode(USER_CODE_FLASH0X8001000) == false)) {
 
-		USB_Init(HIDUSB_EPHandler, HIDUSB_Reset);
-	
-		while(check_flash_complete() == false){
-			delay(400L);
-		};
-		
-		USB_Shutdown(); 		//Reset USB
-		NVIC_SystemReset();		//Reset STM32
-		
-		for(;;);
-	}
-	
- /**
-	* If  <Battery Backed RAM Register> was set from Arduino IDE
-	* exit from USB Serial mode and go to HID mode.
-	*/
-	if(get_and_clear_magic_word() == 0x424C) {
-		
-#if defined HAS_LED2_PIN
-		led2_on();
-#endif
+        USB_Init(HIDUSB_EPHandler, HIDUSB_Reset);
+    
+        while(check_flash_complete() == false){
+            delay(400L);
+        };
+        
+        USB_Shutdown();         //Reset USB
+        NVIC_SystemReset();        //Reset STM32
+        
+        for(;;);
+    }
+    
+    /**
+    * If  <Battery Backed RAM Register> was set from Arduino IDE
+    * exit from USB Serial mode and go to HID mode.
+    */
+    if(get_and_clear_magic_word() == 0x424C) {
+        
+        USB_Shutdown();
+        delay(4000000L);
+        USB_Init(HIDUSB_EPHandler, HIDUSB_Reset);
+        //delay(400000000L);
+        while(check_flash_complete() == false){
+            delay(400L);
+        };
+        
+        USB_Shutdown();             //Reset USB
+        NVIC_SystemReset();        //Reset STM32
+        
+        for(;;);
+    
+    }
+    
+    // Turn GPIOA clock off
+    bit_clear(RCC->APB2ENR, RCC_APB2ENR_IOPAEN);
 
-		USB_Shutdown();
-		delay(4000000L);
-		USB_Init(HIDUSB_EPHandler, HIDUSB_Reset);
-		//delay(400000000L);
-		while(check_flash_complete() == false){
-			delay(400L);
-		};
-		
-		USB_Shutdown(); 			//Reset USB
-		NVIC_SystemReset();		//Reset STM32
-		
-		for(;;);
-	
-	}
-	
-#if defined HAS_LED2_PIN
-	led2_on();
-#endif
+    // Turn GPIOB clock off
+    LED1_CLOCK_DIS;
+    //bit_clear(RCC->APB2ENR, RCC_APB2ENR_IOPBEN);
+    SCB->VTOR = USER_PROGRAM;
+    asm volatile("msr msp, %0"::"g"(*(volatile u32 *) USER_PROGRAM));
+    userProgram();
 
-	// Turn GPIOA clock off
-	bit_clear(RCC->APB2ENR, RCC_APB2ENR_IOPAEN);
-
-	// Turn GPIOB clock off
-	LED1_CLOCK_DIS;
-	//bit_clear(RCC->APB2ENR, RCC_APB2ENR_IOPBEN);
-	SCB->VTOR = USER_PROGRAM;
-	asm volatile("msr msp, %0"::"g"(*(volatile u32 *) USER_PROGRAM));
-	userProgram();
-
-	for(;;);
+    for(;;);
 }
 
 bool check_flash_complete(void){
-	if(uploadFinished == true){
-		return true;
-	}
-	
-	if(uploadStarted == false){
+    if(uploadFinished == true){
+        return true;
+    }
+    
+    if(uploadStarted == false){
 #if defined HAS_LED1_PIN
-		led_on();
-		delay(200000L);
-		led_off();
+        led_on();
+        delay(200000L);
+        led_off();
 #endif
-		delay(200000L);
-	}
-	return false;
+        delay(200000L);
+    }
+    return false;
 }
 
 bool checkUserCode(u32 usrAddr) {
-	u32 sp = *(vu32 *) usrAddr;
+    u32 sp = *(vu32 *) usrAddr;
 
-	if ((sp & 0x2FFE0000) == 0x20000000) {
-		return (true);
-	} else {
-			return (false);
-	}
+    if ((sp & 0x2FFE0000) == 0x20000000) {
+        return (true);
+    } else {
+            return (false);
+    }
 }
 
 void blink_led(uint16_t times){
-	for(int i=0;i<times;i++){
+    for(int i=0;i<times;i++){
 #if defined HAS_LED1_PIN
-		led_on();
-		delay(200000L);
-		led_off();
+        led_on();
+        delay(200000L);
+        led_off();
 #endif
-		delay(200000L);
-	}
+        delay(200000L);
+    }
 }
-	
+    
 void delay(uint32_t tmr){
-	for(uint32_t i = 0; i < tmr; i++) {
-		asm volatile ("nop\n");
-	}
+    for(uint32_t i = 0; i < tmr; i++) {
+        asm volatile ("nop\n");
+    }
 }
