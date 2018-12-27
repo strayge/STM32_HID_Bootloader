@@ -32,8 +32,11 @@
 
 
 // HID Bootloader takes 4 kb flash.
-#define USER_PROGRAM 0x08001000
-#define USER_CODE_FLASH0X8001000    ((u32)0x08001000)
+#define USER_PROGRAM1 0x08001000
+
+#define USER_PROGRAM2 0x08011000
+#define BOOT_FLAG_ADDRESS 0x08010000
+#define BOOT_FLAG_MAGIC   0xAAAAAAAA
 
 typedef void (*funct_ptr)(void);
 void delay(uint32_t tmr);
@@ -68,6 +71,13 @@ uint16_t get_and_clear_magic_word() {
     return value;
 }
 
+bool checkBootFlag(u32 flag_addr) {
+    u32 flag_data = *(vu32 *) flag_addr;
+    if (flag_data == BOOT_FLAG_MAGIC)
+        return true;
+    return false;   
+}
+
 int main() {
     pins_init();
   
@@ -76,11 +86,23 @@ int main() {
   
     uploadStarted = false;
     uploadFinished = false;
-    uint32_t userProgramAddress = *(volatile uint32_t *)(USER_PROGRAM + 0x04);
+
+    // detect which program should be started
+    u32 userSpAddress;
+    if (checkBootFlag(BOOT_FLAG_ADDRESS)) {
+        userSpAddress = USER_PROGRAM2;
+        blink_led(2);
+    } else {
+        userSpAddress = USER_PROGRAM1;
+        blink_led(1);
+    }
+
+    uint32_t userProgramAddress = *(volatile uint32_t *)(userSpAddress + 0x04);
+
     funct_ptr userProgram = (funct_ptr) userProgramAddress;
 
     // If PB2 (BOOT 1 pin) is HIGH enter HID bootloader or no User Code is uploaded to the MCU ...
-    if((GPIOB->IDR & GPIO_IDR_IDR2)||(checkUserCode(USER_CODE_FLASH0X8001000) == false)) {
+    if((GPIOB->IDR & GPIO_IDR_IDR2)||(checkUserCode(userSpAddress) == false)) {
 
         USB_Init(HIDUSB_EPHandler, HIDUSB_Reset);
     
@@ -89,7 +111,7 @@ int main() {
         };
         
         USB_Shutdown();         //Reset USB
-        NVIC_SystemReset();        //Reset STM32
+        NVIC_SystemReset();     //Reset STM32
         
         for(;;);
     }
@@ -121,8 +143,8 @@ int main() {
     // Turn GPIOB clock off
     LED1_CLOCK_DIS;
     //bit_clear(RCC->APB2ENR, RCC_APB2ENR_IOPBEN);
-    SCB->VTOR = USER_PROGRAM;
-    asm volatile("msr msp, %0"::"g"(*(volatile u32 *) USER_PROGRAM));
+    SCB->VTOR = userSpAddress;
+    asm volatile("msr msp, %0"::"g"(*(volatile u32 *) userSpAddress));
     userProgram();
 
     for(;;);
